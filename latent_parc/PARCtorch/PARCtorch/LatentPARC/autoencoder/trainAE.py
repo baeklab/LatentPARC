@@ -127,12 +127,25 @@ test_loader = DataLoader(
     collate_fn=custom_collate_fn,
 )
 
+# Loss funcs
+
+class LpLoss(torch.nn.Module):
+    def __init__(self, p=10):
+        super(LpLoss, self).__init__()
+        self.p = p
+
+    def forward(self, input, target):
+        # Compute element-wise absolute difference
+        diff = torch.abs(input - target)
+        # Summing over all dimensions except the batch dimension
+        norm = torch.sum(diff**self.p, dim=tuple(range(1, diff.ndim)))**(1/self.p)
+        return torch.mean(norm)  # Compute batch mean
 
 # DEFINE AUTOENCODER + TRAINING
 
 # where to save weights
-save_path="/sfs/gpfs/tardis/home/pdy2bw/Research/latent_parc/PARCtorch/PARCtorch/LatentPARC/autoencoder"
-weights_name="corrected_HALVEDms_layers_3_8_latent_16_DE_Nmax16_nrf8_redon500_LRstep_e3_factor8_stepsize200"
+save_path="/sfs/gpfs/tardis/home/pdy2bw/Research/LatentPARC/latent_parc/PARCtorch/PARCtorch/LatentPARC/autoencoder"
+weights_name="corrected_L10loss_layers_3_8_latent_16_DE_Nmax16_nrf8_redon500_LRstep_e3_factor8_stepsize200"
 
 # model setup
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -145,7 +158,10 @@ decoder = Decoder(layers=layer_sizes, latent_dim=16).to(device)
 # Initialize autoencoder
 autoencoder = Autoencoder(encoder, decoder).to(device)
 
-criterion = torch.nn.L1Loss().cuda()
+# Loss Func
+# criterion = torch.nn.L1Loss().cuda()
+criterion = LpLoss(p=10).cuda()
+
 # criterion = nn.MSELoss()
 optimizer = Adam(autoencoder.parameters(), lr=1e-3)
 

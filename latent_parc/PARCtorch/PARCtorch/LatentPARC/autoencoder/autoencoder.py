@@ -86,6 +86,16 @@ def add_random_noise(images, min_val=0.0, max_val=0.1):
     noisy_images = images + noise
     return torch.clamp(noisy_images, 0.0, 1.0)  # Keep pixel values in [0, 1]
 
+class LpLoss(torch.nn.Module):
+    def __init__(self, p=10):
+        super(LpLoss, self).__init__()
+        self.p = p
+
+    def forward(self, input, target):
+        # Compute element-wise absolute difference
+        diff = torch.abs(input - target)
+        # Raise the differences to the power of p, sum them, and raise to the power of 1/p
+        return (torch.sum(diff ** self.p) ** (1 / self.p))
 
 class ConvolutionalAutoencoder:
     def __init__(self, autoencoder, optimizer, save_path=None, weights_name=None):
@@ -156,7 +166,7 @@ class ConvolutionalAutoencoder:
                 # Sending images to device
                 images = images[0][:, 0:n_channels, ...].to(device)
                 
-                images[:, 2, ...] *= 0.5 #!!!!!!!!!!!!!!!!!!!!TESTING THEORY DIV MS MAG BY 2
+                # images[:, 2, ...] *= 0.5 #!!!!!!!!!!!!!!!!!!!!TESTING THEORY DIV MS MAG BY 2
 
                 # Adding noise to images
                 noisy_images = noise_fn(images, max_val=max_noise) if noise_fn else images
@@ -187,7 +197,7 @@ class ConvolutionalAutoencoder:
                     # Sending validation images to device
                     val_images = val_images[0][:, 0:n_channels, ...].to(device)
                     
-                    val_images[:, 2, ...] *= 0.5 #!!!!!!!!!!!!!!!!!!!!TESTING THEORY DIV MS MAG BY 2
+                    # val_images[:, 2, ...] *= 0.5 #!!!!!!!!!!!!!!!!!!!!TESTING THEORY DIV MS MAG BY 2
 
 
                     # # Adding noise to validation images

@@ -5,8 +5,8 @@
 #SBATCH --gres=gpu
 #SBATCH -t 20:00:00
 #SBATCH --mem=128G
-#SBATCH -o /sfs/gpfs/tardis/home/pdy2bw/Research/latent_parc/PARCtorch/PARCtorch/LatentPARC/autoencoder/slurm_files/output_%j.log     # Save output file
-#SBATCH -e /sfs/gpfs/tardis/home/pdy2bw/Research/latent_parc/PARCtorch/PARCtorch/LatentPARC/autoencoder/slurm_files/error_%j.log       # Save error file
+#SBATCH -o /sfs/gpfs/tardis/home/pdy2bw/Research/LatentPARC/latent_parc/PARCtorch/PARCtorch/LatentPARC/autoencoder/slurm_files/output_%j.log     # Save output file
+#SBATCH -e /sfs/gpfs/tardis/home/pdy2bw/Research/LatentPARC/latent_parc/PARCtorch/PARCtorch/LatentPARC/autoencoder/slurm_files/error_%j.log       # Save error file
 #SBATCH --mail-type=END                                # Send email when job finishes
 #SBATCH --mail-user=pdy2bw@virginia.edu             # Your email address
 
@@ -19,4 +19,4 @@ export PYTHON_PATH=$DIR/lib/python3.7/site-packages
 export PATH=$PATH:/home/pdy2bw/.local/lib/python3.10/site-packages
 
 which python
-apptainer run --nv $CONTAINERDIR/pytorch-2.4.0.sif /sfs/gpfs/tardis/home/pdy2bw/Research/latent_parc/PARCtorch/PARCtorch/LatentPARC/autoencoder/trainAE.py
+apptainer run --nv $CONTAINERDIR/pytorch-2.4.0.sif /sfs/gpfs/tardis/home/pdy2bw/Research/LatentPARC/latent_parc/PARCtorch/PARCtorch/LatentPARC/autoencoder/trainAE.py
