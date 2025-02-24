@@ -145,7 +145,7 @@ class LpLoss(torch.nn.Module):
 
 # where to save weights
 save_path="/sfs/gpfs/tardis/home/pdy2bw/Research/LatentPARC/latent_parc/PARCtorch/PARCtorch/LatentPARC/autoencoder"
-weights_name="corrected_L10loss_layers_3_8_latent_16_DE_Nmax16_nrf8_redon500_LRstep_e3_factor8_stepsize200"
+weights_name="corrected_L7loss_layers_3_8_latent_16_DE_Nmax16_nrf8_redon500_LRstep_e3_factor8_stepsize200"
 
 # model setup
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -160,7 +160,7 @@ autoencoder = Autoencoder(encoder, decoder).to(device)
 
 # Loss Func
 # criterion = torch.nn.L1Loss().cuda()
-criterion = LpLoss(p=10).cuda()
+criterion = LpLoss(p=7).cuda()
 
 # criterion = nn.MSELoss()
 optimizer = Adam(autoencoder.parameters(), lr=1e-3)

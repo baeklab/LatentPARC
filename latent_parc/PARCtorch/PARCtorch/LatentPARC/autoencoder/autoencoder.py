@@ -106,7 +106,7 @@ class ConvolutionalAutoencoder:
 
     def train(self, loss_function, epochs, image_size, n_channels, device, train_loader, val_loader, scheduler=None, noise_fn=None, initial_max_noise=0.16, n_reduce_factor=0.5, reduce_on=1000):
         """
-        Train the network as a denoising autoencoder.
+        Train the network as a denoising autoencoder with PARCv1 acting on the latent space.
 
         Parameters:
             loss_function: The loss function to minimize.
