@@ -7,23 +7,24 @@ class Differentiator(nn.Module):
         super().__init__()
         
         in_channels = latent_dim
+        layer_depths = [64, 128, 64, 32]
         
         # block 1
-        self.b1c1 = nn.Conv2d(in_channels, 64, kernel_size=3, padding=1)  
-        self.b1c2 = nn.Conv2d(64, 64, kernel_size=3, padding=1)
-        self.b1c3 = nn.Conv2d(64, 64, kernel_size=3, padding=1)
+        self.b1c1 = nn.Conv2d(in_channels, layer_depths[0], kernel_size=3, padding=1)  
+        self.b1c2 = nn.Conv2d(layer_depths[0], layer_depths[0], kernel_size=3, padding=1)
+        self.b1c3 = nn.Conv2d(layer_depths[0], layer_depths[0], kernel_size=3, padding=1)
         
         # block 2
-        self.b2c1 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
-        self.b2c2 = nn.Conv2d(128, 128, kernel_size=3, padding=1)
-        self.b2c3 = nn.Conv2d(128, 128, kernel_size=3, padding=1)
+        self.b2c1 = nn.Conv2d(layer_depths[0], layer_depths[1], kernel_size=3, padding=1)
+        self.b2c2 = nn.Conv2d(layer_depths[1], layer_depths[1], kernel_size=3, padding=1)
+        self.b2c3 = nn.Conv2d(layer_depths[1], layer_depths[1], kernel_size=3, padding=1)
         
         #block 3
-        self.b3c1 = nn.Conv2d(128, 128, kernel_size=7, padding=3)
-        self.b3c2 = nn.Conv2d(128, 64, kernel_size=1, padding=0)
-        self.b3c3 = nn.Conv2d(64, 32, kernel_size=1, padding=0)
+        self.b3c1 = nn.Conv2d(layer_depths[1], layer_depths[1], kernel_size=7, padding=3)
+        self.b3c2 = nn.Conv2d(layer_depths[1], layer_depths[2], kernel_size=1, padding=0)
+        self.b3c3 = nn.Conv2d(layer_depths[2], layer_depths[3], kernel_size=1, padding=0)
         
-        self.out = nn.Conv2d(32, latent_dim, kernel_size=3, padding=1)
+        self.out = nn.Conv2d(layer_depths[3], latent_dim, kernel_size=3, padding=1)
         
         self.leaky_relu = nn.LeakyReLU()
         self.relu = nn.ReLU()

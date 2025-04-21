@@ -83,30 +83,11 @@ class MLPEncoder(nn.Module):
         x = x.view(x.size(0), -1)
         return self.net(x)
 
-# class MLPDecoder(nn.Module):
-#     def __init__(self, layers, latent_dim, act_fn=nn.ReLU()):
-#         super().__init__()
-#         self.output_shape = output_shape 
-#         modules = []
-#         in_dim = latent_dim
-#         for dim in reversed(layers):
-#             modules.append(nn.Linear(in_dim, dim))
-#             modules.append(act_fn)
-#             in_dim = dim
-#         # layers.append(nn.Linear(in_dim, output_dim))  # Output layer
-#         self.net = nn.Sequential(*modules)
-
-#     def forward(self, x):
-#         x = self.net(x)
-#         # Reshape to original image dimensions
-#         batch_size = x.size(0)
-        
-#         return x.view(batch_size, *self.output_shape)
     
 class MLPDecoder(nn.Module):
     def __init__(self, layers, latent_dim, output_shape=(3, 128, 256), act_fn=nn.ReLU()):
         super().__init__()
-        self.output_shape = output_shape  # Now it's properly passed in!
+        self.output_shape = output_shape  
         modules = []
         in_dim = latent_dim
         for dim in reversed(layers):
@@ -119,7 +100,6 @@ class MLPDecoder(nn.Module):
         x = self.net(x)
         batch_size = x.size(0)
         return x.view(batch_size, *self.output_shape)
-
     
 
 # Convolutional AE

@@ -119,30 +119,12 @@ val_loader = DataLoader(
     collate_fn=custom_collate_fn,
 )
 
-# Optionally, create DataLoader for test dataset
-test_dataset = GenericPhysicsDataset(
-    data_dirs=[data_dir_test],
-    future_steps=future_steps,
-    min_max_path=min_max_path,
-)
-
-test_loader = DataLoader(
-    test_dataset,
-    batch_size=batch_size,
-    shuffle=False,  # No need to shuffle test data
-    num_workers=1,
-    pin_memory=True,
-    collate_fn=custom_collate_fn,
-)
-
-
-
 
 #  TRAINING PARAMS + RUN
 
 # where to save weights
 save_path="/sfs/gpfs/tardis/home/pdy2bw/Research/LatentPARC/latent_parc/PARCtorch/PARCtorch/3AE_LatentPARC"
-weights_name="LP_3encoder_3decoder_Nmax16_nrf8_redon500_LRstep_e3_factor8_stepsize200_nts1_res_block_AE"
+weights_name="LP_3encoder_3decoder_NOpurpleloss_FROZEN_AE_original_DIFF_LRstep_e3_factor8_stepsize200_nts1_NOnoise"
 
 # model setup
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -187,5 +169,5 @@ model = LatentPARC(model_init, optimizer, save_path, weights_name)
 
 log_dict = model.train(loss_function=criterion, epochs=3000, image_size = [128, 256], 
                        n_channels=3, device=device, train_loader=train_loader, val_loader=val_loader,
-                       scheduler=scheduler, noise_fn=add_random_noise, initial_max_noise=0.16, 
+                       scheduler=scheduler, noise_fn=add_random_noise, initial_max_noise=0, 
                        n_reduce_factor=0.8, ms_reduce_factor=0, reduce_on=200, loss_weights=[1.0,1.0,1.0])

@@ -119,41 +119,49 @@ val_loader = DataLoader(
     collate_fn=custom_collate_fn,
 )
 
-# Optionally, create DataLoader for test dataset
-test_dataset = GenericPhysicsDataset(
-    data_dirs=[data_dir_test],
-    future_steps=future_steps,
-    min_max_path=min_max_path,
-)
-
-test_loader = DataLoader(
-    test_dataset,
-    batch_size=batch_size,
-    shuffle=False,  # No need to shuffle test data
-    num_workers=1,
-    pin_memory=True,
-    collate_fn=custom_collate_fn,
-)
-
-
-
-
 #  TRAINING PARAMS + RUN
 
 # where to save weights
 save_path="/sfs/gpfs/tardis/home/pdy2bw/Research/LatentPARC/latent_parc/PARCtorch/PARCtorch/3AE_LatentPARC"
-weights_name="layers_3_8_latent_8_LP_Nmax16_nrf8_redon500_LRstep_e3_factor8_stepsize200_nts1"
+weights_name="layers_3_8_latent_16_NOpurpleloss_PRELOAD_AE_original_DIFF_LP_LRstep_e3_factor8_stepsize200_nts1_NONOISE_plateau100patience"
 
 # model setup
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Define layer sizes and initialize encoder/decoder
 layer_sizes = [3, 8]
-latent_dim = 8
+latent_dim = 16
 encoder = Encoder(layers=layer_sizes, latent_dim=latent_dim).to(device)
 decoder = Decoder(layers=layer_sizes, latent_dim=latent_dim).to(device)
 differentiator = Differentiator(latent_dim=latent_dim)
 integrator = RK4().to(device)  # step size may be hyper-param of interest
+
+
+
+# ONLY RUN IF LOADING PRETRAINED WEIGHTS TO AE
+# !!!! If this works, modify AE code to save encoder and decoder weights separate for simplicity
+AE_weights_path = "autoencoder/2_layers_and_latent_experiment/layers_3_8_latent_16_DE_Nmax16_nrf8_redon500_LRstep_e3_factor8_stepsize200_3000.pth"
+#layers_3_8_latent_8_DE_Nmax16_nrf8_redon500_LRstep_e3_factor8_stepsize200_3000
+ckpt = torch.load(AE_weights_path, map_location=device)
+
+encoder.load_state_dict({k.replace('encoder.', ''): v for k, v in ckpt.items() if k.startswith('encoder.')})
+decoder.load_state_dict({k.replace('decoder.', ''): v for k, v in ckpt.items() if k.startswith('decoder.')})
+
+##################
+# # OPTIONAL: freeze AE weights
+# for param in encoder.parameters():
+#     param.requires_grad = False
+
+# for param in decoder.parameters():
+#     param.requires_grad = False
+
+####################
+
+##################
+
+
+
+
 
 # Initialize LatentPARC
 model_init = lp_model(encoder, decoder, differentiator, integrator).to(device)
@@ -167,12 +175,12 @@ optimizer = Adam(model_init.parameters(), lr=1e-3)
 
 # Define learning rate scheduler
 # scheduler = StepLR(optimizer, step_size=3, gamma=0.5)
-scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=10, verbose=True)
+scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=100, verbose=True)
 
 #  training model
 model = LatentPARC(model_init, optimizer, save_path, weights_name)
 
 log_dict = model.train(criterion, epochs=3000, image_size = [128, 256], n_channels=3, device=device, 
                        train_loader=train_loader, val_loader=val_loader, scheduler=scheduler,
-                       noise_fn=add_random_noise, initial_max_noise=0.16, n_reduce_factor=0.8, 
-                       ms_reduce_factor=0, reduce_on=200)
+                       noise_fn=add_random_noise, initial_max_noise=0, n_reduce_factor=0.8, 
+                       ms_reduce_factor=0, reduce_on=200, loss_weights=[0,1.0,1.0])
