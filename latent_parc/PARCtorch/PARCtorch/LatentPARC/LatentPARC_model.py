@@ -151,8 +151,8 @@ class LatentPARC:
                 target = target.squeeze(0)[:, 0:n_channels, ...].to(device)
                 
                 # HALVE MICROSTRUCTURE
-                ic[:, 2, ...] *= 0.5 #!!!!!!!!!!!!!!!!!!!!TESTING THEORY DIV MS MAG BY 2
-                target[:, 2, ...] *= 0.5 #!!!!!!!!!!!!!!!!!!!!TESTING THEORY DIV MS MAG BY 2
+                # ic[:, 2, ...] *= 0.5 #!!!!!!!!!!!!!!!!!!!!TESTING THEORY DIV MS MAG BY 2
+                # target[:, 2, ...] *= 0.5 #!!!!!!!!!!!!!!!!!!!!TESTING THEORY DIV MS MAG BY 2
 
                 # Adding noise to images
                 noisy_ic = noise_fn(ic, max_val=max_noise) if noise_fn else ic
@@ -168,6 +168,19 @@ class LatentPARC:
                 # loss = loss_function(output, target.view(-1, n_channels, image_size[0], image_size[1])) 
                 
                 L_r = loss_function(x_bar, ic.view(-1, n_channels, image_size[0], image_size[1]))
+                
+                # L1 Regularization only for AE
+                lambda_l1 = 0.01  # Set your desired L1 regularization strength
+                l1_reg = sum(p.abs().sum() for p in list(self.network.encoder.parameters()) + list(self.network.decoder.parameters()))
+                # Add L1 regularization only to L_r
+                L_r = L_r + lambda_l1 * l1_reg
+                
+                # # Compute L2 Regularization only for encoder and decoder
+                # lambda_l2 = 0.01
+                # l2_reg = sum((p ** 2).sum() for p in list(self.network.encoder.parameters()) + list(self.network.decoder.parameters()))
+                # # Add L2 regularization only to L_r
+                # L_r = L_r + lambda_l2 * l2_reg
+                
                 L_d1 = loss_function(z_hat, z_hat_next)
                 L_d2 = loss_function(x_hat, target.view(-1, n_channels, image_size[0], image_size[1]))
                 
@@ -199,8 +212,8 @@ class LatentPARC:
                     val_target = val_target.squeeze(0)[:, 0:n_channels, ...].to(device)
                     
                     # HALVE MICROSTRUCTURE
-                    val_ic[:, 2, ...] *= 0.5 #!!!!!!!!!!!!!!!!!!!!TESTING THEORY DIV MS MAG BY 2
-                    val_target[:, 2, ...] *= 0.5 #!!!!!!!!!!!!!!!!!!!!TESTING THEORY DIV MS MAG BY 2
+                    # val_ic[:, 2, ...] *= 0.5 #!!!!!!!!!!!!!!!!!!!!TESTING THEORY DIV MS MAG BY 2
+                    # val_target[:, 2, ...] *= 0.5 #!!!!!!!!!!!!!!!!!!!!TESTING THEORY DIV MS MAG BY 2
 
                     # Reconstructing images  
                     _, x_bar = self.network(val_ic, n_ts=0) 
@@ -209,6 +222,19 @@ class LatentPARC:
 
                     # Computing validation loss
                     L_r = loss_function(x_bar, val_ic.view(-1, n_channels, image_size[0], image_size[1]))
+                    
+                    # Compute L1 Regularization only for encoder and decoder
+                    lambda_l1 = 0.01
+                    l1_reg = sum(p.abs().sum() for p in list(self.network.encoder.parameters()) + list(self.network.decoder.parameters()))
+                    # Add L1 regularization only to L_r
+                    L_r = L_r + lambda_l1 * l1_reg
+                    
+                    # # Compute L2 Regularization only for encoder and decoder
+                    # lambda_l2 = 0.01
+                    # l2_reg = sum((p ** 2).sum() for p in list(self.network.encoder.parameters()) + list(self.network.decoder.parameters()))
+                    # # Add L2 regularization only to L_r
+                    # L_r = L_r + lambda_l2 * l2_reg
+                    
                     L_d1 = loss_function(z_hat, z_hat_next)
                     L_d2 = loss_function(x_hat, val_target.view(-1, n_channels, image_size[0], image_size[1]))
 
