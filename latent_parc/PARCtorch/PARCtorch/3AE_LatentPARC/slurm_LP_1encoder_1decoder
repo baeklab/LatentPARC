@@ -3,8 +3,8 @@
 #SBATCH -p gpu
 #SBATCH -N 1
 #SBATCH --gres=gpu
-#SBATCH -t 10:00:00
-#SBATCH --mem=2G
+#SBATCH -t 12:00:00
+#SBATCH --mem=5G
 #SBATCH -o /sfs/gpfs/tardis/home/pdy2bw/Research/LatentPARC/latent_parc/PARCtorch/PARCtorch/3AE_LatentPARC/slurm_files/output_%j.log     # Save output file
 #SBATCH -e /sfs/gpfs/tardis/home/pdy2bw/Research/LatentPARC/latent_parc/PARCtorch/PARCtorch/3AE_LatentPARC/slurm_files/error_%j.log       # Save error file
 #SBATCH --mail-type=END                                # Send email when job finishes

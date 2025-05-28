@@ -8,27 +8,7 @@ import json
 import torch.nn.functional as F
 from PARCv1.differentiator import *
 from autoencoder.autoencoder import *
-
-
-# Helper Functions
-class LpLoss(torch.nn.Module):
-    def __init__(self, p=10):
-        super(LpLoss, self).__init__()
-        self.p = p
-
-    def forward(self, input, target):
-        # Compute element-wise absolute difference
-        diff = torch.abs(input - target)
-        # Raise the differences to the power of p, sum them, and raise to the power of 1/p
-        return (torch.sum(diff ** self.p) ** (1 / self.p))
-
-def init_weights(module):
-    """Initialize weights using Xavier uniform initialization."""
-    if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
-        torch.nn.init.xavier_uniform_(module.weight)
-        if module.bias is not None:
-            module.bias.data.fill_(0.01)
-
+from loss_funcs import *
 
 def save_model_and_logs(model, save_path, weights_name, log_dict, epochs):
     """Save model weights and training logs."""
@@ -39,45 +19,11 @@ def save_model_and_logs(model, save_path, weights_name, log_dict, epochs):
         print(f"Model and logs saved to {save_path}")
 
 
-# PERCEPTUAL LOSS FUNCTIONS
-# Load Pretrained Feature Extractor (VGG19)
-class FeatureExtractor(nn.Module):
-    def __init__(self, layers=[2, 7, 12]):  # Example layers: relu1_2, relu2_2, relu3_2
-        super(FeatureExtractor, self).__init__()
-        vgg = models.vgg19(weights=models.VGG19_Weights.IMAGENET1K_V1).features  # Updated weights usage
-        self.selected_layers = layers
-        self.feature_extractor = nn.Sequential(*list(vgg.children())[:max(layers) + 1])
-        for param in self.feature_extractor.parameters():
-            param.requires_grad = False  # Freeze VGG weights
-
-    def forward(self, x):
-        features = []
-        for i, layer in enumerate(self.feature_extractor):
-            x = layer(x)
-            if i in self.selected_layers:
-                features.append(x)
-        return features
-
-# Perceptual Loss Function
-class PerceptualLoss(nn.Module):
-    def __init__(self, feature_extractor, loss_fn=nn.L1Loss()):
-        super(PerceptualLoss, self).__init__()
-        self.feature_extractor = feature_extractor
-        self.loss_fn = loss_fn  # Can use L1 or MSE loss
-
-    def forward(self, input, target):
-        with torch.no_grad():  # Save memory by disabling gradient computation
-            input_features = self.feature_extractor(input)
-            target_features = self.feature_extractor(target)
-        
-        loss = sum(self.loss_fn(inp, tgt) for inp, tgt in zip(input_features, target_features))
-        return loss
-
-
 # ------------
-# LATENT PARC MODEL
+# LATENT PARC MODELS
 # ------------
 # Original model where all 3 fields go into 1 autoencoder
+    
 class lp_model(nn.Module):
     def __init__(self, encoder, decoder, differentiator, integrator):
         super().__init__()
@@ -88,23 +34,101 @@ class lp_model(nn.Module):
 
     def forward(self, x, n_ts=1, mode='train'):
         if mode == 'train':
-            if n_ts == 0:
+            if n_ts == 0: # case for autoencoder reconstruction only, no dynamics
                 z = self.encoder(x)
                 decoded = self.decoder(z)
-            elif n_ts == 1:
+            elif n_ts == 1: 
                 z_init = self.encoder(x)
                 z, _ = self.integrator(self.differentiator, 0.0, z_init, 0.1)
                 decoded = self.decoder(z)
+        
         elif mode == 'pred': 
             z_list, decoded_list = [], []
             z_i = self.encoder(x)
             z_list.append(z_i)
-            # decoded_list.append(self.decoder(z_i))
-            for i in range(n_ts - 1):
+            decoded_list.append(self.decoder(z_i))
+          
+            for i in range(n_ts-1):
                 z_i, _ = self.integrator(self.differentiator, 0.0, z_list[i], 0.1)
                 z_list.append(z_i)
                 decoded_list.append(self.decoder(z_i))
-            z, decoded = torch.cat(z_list, dim=0), torch.cat(decoded_list, dim=0)
+            z, decoded = torch.stack(z_list, dim=0), torch.stack(decoded_list, dim=0)          
+        return z, decoded
+    
+# model where T, P, ms all go into separate encoders, concat in latent space, decode separately
+class lp_model_3encoder_3decoder(nn.Module):
+    def __init__(self, encoder_T, encoder_P, encoder_M, decoder_T, decoder_P, decoder_M, differentiator, integrator):
+        super().__init__()
+        self.encoderT = encoder_T
+        self.encoderP = encoder_P
+        self.encoderM = encoder_M
+        self.decoderT = decoder_T
+        self.decoderP = decoder_P
+        self.decoderM = decoder_M
+        self.differentiator = differentiator
+        self.integrator = integrator
+
+    def forward(self, x, n_ts=1, mode='train'):
+        if mode == 'train':
+            if n_ts == 0:
+                z_t = self.encoderT(x[:, 0:1, :, :]) # only T channel
+                z_p = self.encoderP(x[:, 1:2, :, :]) # only P channel
+                z_m = self.encoderM(x[:, 2:3, :, :]) # only M channel
+                z = torch.cat((z_t, z_p, z_m), dim=1) # concat in latent space
+                
+                channel_index = z.shape[1] // 3  # get dim size for splitting index
+                
+                decoded_t = self.decoderT(z[:, 0:channel_index, :, :]) # decode T
+                decoded_p = self.decoderP(z[:, channel_index:channel_index*2, :, :]) # decode P
+                decoded_m = self.decoderM(z[:, channel_index*2:, :, :]) # decode M
+                decoded = torch.cat((decoded_t, decoded_p, decoded_m), dim=1) # concat for output
+                
+            elif n_ts == 1:
+                z_t_init = self.encoderT(x[:, 0:1, :, :]) # encode T
+                z_p_init = self.encoderP(x[:, 1:2, :, :]) # encode P
+                z_m_init = self.encoderM(x[:, 2:3, :, :]) # encode M
+                z_init = torch.cat((z_t_init, z_p_init, z_m_init), dim=1) # concat in latent space
+                z, _ = self.integrator(self.differentiator, 0.0, z_init, 0.1)
+                
+                channel_index = z.shape[1] // 3  # get dim size for splitting index
+                
+                decoded_t = self.decoderT(z[:, 0:channel_index, :, :]) # decode T
+                decoded_p = self.decoderP(z[:, channel_index:channel_index*2, :, :]) # decode P
+                decoded_m = self.decoderM(z[:, channel_index*2:, :, :]) # decode M
+                decoded = torch.cat((decoded_t, decoded_p, decoded_m), dim=1) # concat for output
+            
+        elif mode == 'pred':
+            z_list, decoded_list = [], []
+            
+            # encode ic
+            z_t = self.encoderT(x[:, 0:1, :, :]) # only T channel
+            z_p = self.encoderP(x[:, 1:2, :, :]) # only P channel
+            z_m = self.encoderM(x[:, 2:3, :, :]) # only M channel
+            z_i = torch.cat((z_t, z_p, z_m), dim=1) # concat in latent space
+        
+            z_list.append(z_i)
+            channel_index = z_i.shape[1] // 3  # get dim size for splitting index
+            
+            decoded_t = self.decoderT(z_i[:, 0:channel_index, :, :]) # decode T
+            decoded_p = self.decoderP(z_i[:, channel_index:channel_index*2, :, :]) # decode P
+            decoded_m = self.decoderM(z_i[:, channel_index*2:, :, :]) # decode M
+            decoded = torch.cat((decoded_t, decoded_p, decoded_m), dim=1) # concat for output
+            
+            decoded_list.append(decoded)
+            
+            for i in range(n_ts - 1):
+                z_i, _ = self.integrator(self.differentiator, 0.0, z_list[i], 0.1)
+                z_list.append(z_i)
+                
+                channel_index = z_i.shape[1] // 3  # get dim size for splitting index
+                
+                decoded_t = self.decoderT(z_i[:, 0:channel_index, :, :]) # decode T
+                decoded_p = self.decoderP(z_i[:, channel_index:channel_index*2, :, :]) # decode P
+                decoded_m = self.decoderM(z_i[:, channel_index*2:, :, :]) # decode M
+                decoded = torch.cat((decoded_t, decoded_p, decoded_m), dim=1) # concat for output
+
+                decoded_list.append(decoded)
+            z, decoded = torch.stack(z_list, dim=0), torch.stack(decoded_list, dim=0)
         return z, decoded
 
 # model where ms goes into a separate AE, T and P are still encoded together, concat in latent space
@@ -183,7 +207,7 @@ class lp_model_3encoder_1decoder(nn.Module):
                 z_i, _ = self.integrator(self.differentiator, 0.0, z_i, 0.1)
                 z_list.append(z_i)
                 decoded_list.append(self.decoder(z_i))
-            z, decoded = torch.stack(z_list, dim=0), torch.stack(decoded_list, dim=0)
+            z, decoded = torch.cat(z_list, dim=0), torch.cat(decoded_list, dim=0)
         return z, decoded
     
 # model where T, P, ms all go into separate encoders, concat in latent space, decode separately
@@ -229,110 +253,44 @@ class lp_model_2plus1_2decoder(nn.Module):
                 decoded_list.append(self.decoder(z_i))
             z, decoded = torch.stack(z_list, dim=0), torch.stack(decoded_list, dim=0)
         return z, decoded
-    
-# model where T, P, ms all go into separate encoders, concat in latent space, decode separately
-class lp_model_3encoder_3decoder(nn.Module):
-    def __init__(self, encoder_T, encoder_P, encoder_M, decoder_T, decoder_P, decoder_M, differentiator, integrator):
-        super().__init__()
-        self.encoderT = encoder_T
-        self.encoderP = encoder_P
-        self.encoderM = encoder_M
-        self.decoderT = decoder_T
-        self.decoderP = decoder_P
-        self.decoderM = decoder_M
-        self.differentiator = differentiator
-        self.integrator = integrator
 
-    def forward(self, x, n_ts=1, mode='train'):
-        if mode == 'train':
-            if n_ts == 0:
-                z_t = self.encoderT(x[:, 0:1, :, :]) # only T channel
-                z_p = self.encoderP(x[:, 1:2, :, :]) # only P channel
-                z_m = self.encoderM(x[:, 2:3, :, :]) # only M channel
-                z = torch.cat((z_t, z_p, z_m), dim=1) # concat in latent space
-                
-                decoded_t = self.decoderT(z[:, 0:4, :, :]) # decode T
-                decoded_p = self.decoderP(z[:, 4:8, :, :]) # decode P
-                decoded_m = self.decoderM(z[:, 8:, :, :]) # decode M
-                decoded = torch.cat((decoded_t, decoded_p, decoded_m), dim=1) # concat for output
-                
-            elif n_ts == 1:
-                z_t_init = self.encoderT(x[:, 0:1, :, :]) # encode T
-                z_p_init = self.encoderP(x[:, 1:2, :, :]) # encode P
-                z_m_init = self.encoderM(x[:, 2:3, :, :]) # encode M
-                z_init = torch.cat((z_t_init, z_p_init, z_m_init), dim=1) # concat in latent space
-                z, _ = self.integrator(self.differentiator, 0.0, z_init, 0.1)
-                
-                decoded_t = self.decoderT(z[:, 0:4, :, :]) # decode T
-                decoded_p = self.decoderP(z[:, 4:8, :, :]) # decode P
-                decoded_m = self.decoderM(z[:, 8:, :, :]) # decode M
-                decoded = torch.cat((decoded_t, decoded_p, decoded_m), dim=1) # concat for output
-            
-        elif mode == 'pred':
-            z_list, decoded_list = [], []
-            
-            # encode ic
-            z_t = self.encoderT(x[:, 0:1, :, :]) # only T channel
-            z_p = self.encoderP(x[:, 1:2, :, :]) # only P channel
-            z_m = self.encoderM(x[:, 2:3, :, :]) # only M channel
-            z_i = torch.cat((z_t, z_p, z_m), dim=1) # concat in latent space
-        
-            z_list.append(z_i)
-            
-#             decoded_t = self.decoderT(z_i[:, 0:4, :, :]) # decode T
-#             decoded_p = self.decoderP(z_i[:, 4:8, :, :]) # decode P
-#             decoded_m = self.decoderM(z_i[:, 8:, :, :]) # decode M
-#             decoded = torch.cat((decoded_t, decoded_p, decoded_m), dim=1) # concat for output
-            
-#             decoded_list.append(decoded)
-            
-            for i in range(n_ts - 1):
-                z_i, _ = self.integrator(self.differentiator, 0.0, z_list[i], 0.1)
-                z_list.append(z_i)
-                
-                decoded_t = self.decoderT(z_i[:, 0:4, :, :]) # decode T
-                decoded_p = self.decoderP(z_i[:, 4:8, :, :]) # decode P
-                decoded_m = self.decoderM(z_i[:, 8:, :, :]) # decode M
-                decoded = torch.cat((decoded_t, decoded_p, decoded_m), dim=1) # concat for output
 
-                decoded_list.append(decoded)
-            z, decoded = torch.cat(z_list, dim=0), torch.cat(decoded_list, dim=0)
-        return z, decoded
-    
 # ------------
 # TRAINING FUNCTION
 # ------------
 def train_latentparc(model, optimizer, loss_function, train_loader, val_loader, device, 
-                      epochs=10, image_size=(64, 64), n_channels=3, scheduler=None, 
+                      epochs=10, image_size=(128, 256), n_channels=3, scheduler=None, 
                       noise_fn=None, initial_max_noise=0.16, n_reduce_factor=0.5,
-                      ms_reduce_factor=0, reduce_on=1000, loss_weights=[1.0,1.0,1.0],
-                      save_path=None, weights_name=None):
+                      ms_reduce_factor=0, reduce_on=500, loss_weights=[1.0,1.0,1.0],
+                      mode="single_ts_train", save_path=None, weights_name=None):
     """
     Train LatentPARC model.
     
     model: lp_model
-    optimizer: 
-    loss_function:
+    optimizer: optimizer
+    loss_function: loss function
     train_loader: training data
     val_loader: validation data
     device: GPU
-    epochs: num epochs to train for
-    imagesize:
-    n_channels: T,P,mu etc. however many of these
+    epochs: number of epochs to train for
+    imagesize: tuple, (height, width)
+    n_channels: T,P,ms etc. however many of these (=5 to include velocity)
     scheduler: loss scheduler
     noise_fn: function for adding noise to images
     initial_max_noise: max magnitude of noise to add
     n_reduce_factor: fraction to reduce noise by at each reduce on epoch
     ms_reduce factor: e.g. if you want to decrease magnitude of ms by .5, set equal to .5
     reduce_on: epoch interval to decrease noise
+    loss_weights: weights to apply to purple, orange, green loss -> key in slides, need to rename in code
+    mode: options "single_ts_train" or "rollout_train", currently rollout train is only for frozen or preload AE
     save_path: where to save weights and loss history
-    weights name:
+    weights name: name of the weights
     """
     log_dict = {'training_loss_per_epoch': [], 'validation_loss_per_epoch': [],
                'purple_loss_train': [], 
                'green_loss_train': [], 
                'orange_loss_train': []}
-    # model.apply(init_weights)  # Initialize weights
+    
     model.to(device)
 
     max_noise = initial_max_noise  # Initialize noise level
@@ -352,26 +310,51 @@ def train_latentparc(model, optimizer, loss_function, train_loader, val_loader, 
         orange_losses = []
         for images in tqdm(train_loader, desc="Training"):
             optimizer.zero_grad()
-            ic, _, _, target = images
-            ic, target = ic[:, :n_channels, ...].to(device), target.squeeze(0)[:, :n_channels, ...].to(device)
             
-            # HALVE MICROSTRUCTURE
-            if ms_reduce_factor != 0:
+            # UNPACK
+            # ic.shape -> [batch, n_channel, H, W]
+            # target.shape -> [timestep, batch, n_channel, H, W] note: timestep goes from 1->ts with 0 being ic
+            ic, _, n_ts, target = images # ic is first frame of subsequence not always actual IC, n_ts is total ts - 1           
+            
+            # RESHAPE
+            ic = ic[:, :n_channels, ...].to(device)
+            n_ts = n_ts.shape[0]
+            target = target[:, :, :n_channels, ...].to(device)
+        
+            # rollout_GT = torch.concat((ic.unsqueeze(0), target)) # concat ic and the rest of the timesteps, may switch all ic and target to this for simplicity
+                
+            if ms_reduce_factor != 0: # Optional: reduce microstructure magnitude
                 ic[:, 2, ...] *= ms_reduce_factor
-                target[:, 2, ...] *= ms_reduce_factor
+                target[:, :, 2, ...] *= ms_reduce_factor
 
-            noisy_ic = noise_fn(ic, max_val=max_noise) if noise_fn else ic
-            noisy_target = noise_fn(target, max_val=max_noise) if noise_fn else target
+            ic = noise_fn(ic, max_val=max_noise) if noise_fn else ic  # optional add noise step
 
-            _, x_bar = model(noisy_ic, n_ts=0)
-            z_hat, x_hat = model(noisy_ic, n_ts=1)
-            z_hat_next, _ = model(noisy_target, n_ts=0)
+            if mode == "single_ts_train":
+                assert n_ts == 1, "In 'single_ts_train' mode, n_ts must be 1"
+                
+                target = target.squeeze(0) # no longer need n_ts channel
 
-            L_1 = loss_function(x_bar, ic)
-            L_2 = loss_function(z_hat, z_hat_next)
-            L_3 = loss_function(x_hat, target)
+                _, x_bar = model(ic, n_ts=0)
+                z_hat, x_hat = model(ic, n_ts=1) 
+                z_hat_next, _ = model(target, n_ts=0) 
+
+                L_1 = loss_function(x_bar, ic)
+                L_2 = loss_function(z_hat, z_hat_next)
+                L_3 = loss_function(x_hat, target)
             
-            # print(f"Purple: {L_1}, Green: {L_2}, Orange: {L_3}")
+            elif mode == "rollout_train":
+                # collect GT latent encodings for all target ts (will be ts 1->n_ts, ts 0 latent no dynamics)
+                z_hat_next = []
+                for i in range(n_ts): # only have GT for n_ts latent next fields (there are n_ts + 1 steps with ic)
+                    z_hat_next_i, _ = model(target[i, ...], n_ts=0)
+                    z_hat_next.append(z_hat_next_i)
+                z_hat_next = torch.stack(z_hat_next, dim=0)
+                
+                z_hat, x_hat = model(ic, n_ts=n_ts+1, mode='pred') # n_ts + 1 b/c also outputs IC z and recon. 0
+                
+                L_1 = torch.tensor(0.0, device=device) # don't need recon. loss, can do with x_hat[0, ...] though
+                L_2 = loss_function(z_hat[1:, ...], z_hat_next)
+                L_3 = loss_function(x_hat[1:, ...], target)
             
             loss = (L_1*loss_weights[0] + 
                     L_2*loss_weights[1] + 
@@ -385,9 +368,9 @@ def train_latentparc(model, optimizer, loss_function, train_loader, val_loader, 
             orange_losses.append(L_3.item())
 
         avg_train_loss = np.mean(train_losses)
-        avg_purple_loss = np.mean(purple_losses)
-        avg_green_loss = np.mean(green_losses)
-        avg_orange_loss = np.mean(orange_losses)
+        avg_purple_loss = np.mean(purple_losses) # reconstruction loss
+        avg_green_loss = np.mean(green_losses) # latent dynamics loss
+        avg_orange_loss = np.mean(orange_losses) # reconstructed + dynamics loss
         
         log_dict['training_loss_per_epoch'].append(avg_train_loss)
         log_dict['purple_loss_train'].append(avg_purple_loss)
@@ -399,26 +382,51 @@ def train_latentparc(model, optimizer, loss_function, train_loader, val_loader, 
         val_losses = []
         with torch.no_grad():
             for val_images in tqdm(val_loader, desc="Validating"):
-                val_ic, _, _, val_target = val_images
-                val_ic, val_target = val_ic[:, :n_channels, ...].to(device), val_target.squeeze(0)[:, :n_channels, ...].to(device)
-
-                # Halve MS
-                if ms_reduce_factor != 0:
-                    val_ic[:, 2, ...] *= ms_reduce_factor 
-                    val_target[:, 2, ...] *= ms_reduce_factor
-
+                # UNPACK
+                # ic.shape -> [batch, n_channel, H, W]
+                # target.shape -> [timestep, batch, n_channel, H, W] note: timestep goes from 1->ts with 0 being ic
+                val_ic, _, n_ts, val_target = val_images # ic is first frame of subsequence not always actual IC, ts is number of ts - 1           
+            
+                # RESHAPE
+                val_ic = val_ic[:, :n_channels, ...].to(device)
+                n_ts = n_ts.shape[0]
+                val_target = val_target[:, :, :n_channels, ...].to(device)
                 
-                _, x_bar = model(val_ic, n_ts=0)
-                z_hat, x_hat = model(val_ic, n_ts=1)
-                z_hat_next, _ = model(val_target, n_ts=0)
-                
-                val_L_1 = loss_function(x_bar, val_ic)
-                val_L_2 = loss_function(z_hat, z_hat_next)
-                val_L_3 = loss_function(x_hat, val_target)
+                if ms_reduce_factor != 0: # Optional: reduce microstructure magnitude
+                    val_ic[:, 2, ...] *= ms_reduce_factor
+                    val_target[:, :, 2, ...] *= ms_reduce_factor
+                    
+                if mode == "single_ts_train":
+                    assert n_ts == 1, "In 'single_ts_train' mode, n_ts must be 1"
+
+                    val_target = val_target.squeeze(0) # no longer need n_ts channel
+
+                    _, x_bar = model(val_ic, n_ts=0)
+                    z_hat, x_hat = model(val_ic, n_ts=1) 
+                    z_hat_next, _ = model(val_target, n_ts=0) 
+
+                    val_L_1 = loss_function(x_bar, val_ic)
+                    val_L_2 = loss_function(z_hat, z_hat_next)
+                    val_L_3 = loss_function(x_hat, val_target)
+
+                elif mode == "rollout_train":
+                    # collect GT latent encodings for all target ts (will be ts 1->n_ts, ts 0 latent no dynamics)
+                    z_hat_next = []
+                    for i in range(n_ts): # only have GT for n_ts latent fields (there are n_ts + 1 steps with ic)
+                        z_hat_next_i, _ = model(val_target[i, ...], n_ts=0)
+                        z_hat_next.append(z_hat_next_i)
+                    z_hat_next = torch.stack(z_hat_next, dim=0)
+
+                    z_hat, x_hat = model(val_ic, n_ts=n_ts+1, mode='pred') # n_ts + 1 b/c also outputs IC z and recon.
+
+                    val_L_1 = torch.tensor(0.0, device=device) # don't need recon. loss, can do with x_hat[0, ...] though
+                    val_L_2 = loss_function(z_hat[1:, ...], z_hat_next)
+                    val_L_3 = loss_function(x_hat[1:, ...], val_target)
+
 
                 val_loss = (val_L_1*loss_weights[0] + 
-                             val_L_2*loss_weights[1] + 
-                             val_L_3*loss_weights[2])
+                        val_L_2*loss_weights[1] + 
+                        val_L_3*loss_weights[2])
 
                 val_losses.append(val_loss.item())
 
@@ -448,13 +456,12 @@ class LatentPARC:
         self.save_path = save_path
         self.weights_name = weights_name
 
-    def train(self, loss_function, epochs, image_size, n_channels, device, train_loader, val_loader, scheduler=None, noise_fn=None, initial_max_noise=0.16, n_reduce_factor=0.5, ms_reduce_factor=0, reduce_on=1000, loss_weights=[1.0, 1.0, 1.0]):
+    def train(self, loss_function, epochs, image_size, n_channels, device, train_loader, val_loader, scheduler=None, noise_fn=None, initial_max_noise=0.16, n_reduce_factor=0.5, ms_reduce_factor=0, reduce_on=1000, loss_weights=[1.0, 1.0, 1.0], mode="single_ts_train"):
         """Wrapper for training."""
         return train_latentparc(self.network, self.optimizer, loss_function, train_loader, val_loader,
                                 device, epochs, image_size, n_channels, scheduler, noise_fn,
                                 initial_max_noise, n_reduce_factor, ms_reduce_factor, reduce_on,
-                                loss_weights,
-                                self.save_path, self.weights_name)
+                                loss_weights, mode, self.save_path, self.weights_name)
 
     def autoencode(self, x):
         return self.network(x)
