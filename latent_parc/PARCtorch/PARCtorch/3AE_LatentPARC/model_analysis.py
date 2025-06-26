@@ -26,28 +26,52 @@ def compute_finite_difference(time_sequence):
 
 ### NOTE: FOR STEER, CAN JUST DO ABOVE BUT CALC DOT PRODUCT INSTEAD OF DIFFERENCE, INPUT RESULTS FROM ABOVE INTO DOT PROD FUNC
 
+# def calculate_norm(input_data, latent_data, reconstruction_data):
+#     '''
+#     * Currently uses L2 norm
+    
+#     Inputs: expected shape [n_ts, channels, H, W]
+    
+#     Outputs: output is a list with length n_ts of norms for each flattened vector at that time step
+#     latent_norm: output is a list with length n_ts of norms for each flattened vector at that time step
+#     '''
+    
+#     n_ts = input_data.shape[0]
+    
+#     input_data_norm = torch.norm(input_data.view(n_ts, -1), dim=1) 
+#     latent_data_norm = torch.norm(latent_data.view(n_ts, -1), dim=1) 
+#     reconstruction_data_norm = torch.norm(reconstruction_data.view(n_ts, -1), dim=1) 
+    
+#     input_norm = input_data_norm.tolist()
+#     latent_norm = latent_data_norm.tolist()
+#     reconstruction_norm = reconstruction_data_norm.tolist()
+    
+    
+#     return input_norm, latent_norm, reconstruction_norm
+
 def calculate_norm(input_data, latent_data, reconstruction_data):
     '''
-    * Currently uses L2 norm
+    Compute L2 norm over time for each input tensor.
+
+    Inputs:
+        input_data: Tensor of shape [time, ...]
+        latent_data: Tensor of shape [time, ...]
+        reconstruction_data: Tensor of shape [time, ...]
     
-    Inputs: expected shape [n_ts, channels, H, W]
-    
-    Outputs: output is a list with length n_ts of norms for each flattened vector at that time step
-    latent_norm: output is a list with length n_ts of norms for each flattened vector at that time step
+    Returns:
+        input_norm, latent_norm, reconstruction_norm: Lists of float norms at each time step
     '''
-    
-    n_ts = input_data.shape[0]
-    
-    input_data_norm = torch.norm(input_data.view(n_ts, -1), dim=1) 
-    latent_data_norm = torch.norm(latent_data.view(n_ts, -1), dim=1) 
-    reconstruction_data_norm = torch.norm(reconstruction_data.view(n_ts, -1), dim=1) 
-    
-    input_norm = input_data_norm.tolist()
-    latent_norm = latent_data_norm.tolist()
-    reconstruction_norm = reconstruction_data_norm.tolist()
-    
-    
+    def norm_over_time(x):
+        t = x.shape[0]
+        return torch.norm(x.view(t, -1), dim=1).tolist()
+
+    input_norm = norm_over_time(input_data)
+    latent_norm = norm_over_time(latent_data)
+    reconstruction_norm = norm_over_time(reconstruction_data)
+
     return input_norm, latent_norm, reconstruction_norm
+
+
 
 def calculate_separate_norm(input_data, reconstruction_data):
     '''
@@ -63,22 +87,44 @@ def calculate_separate_norm(input_data, reconstruction_data):
 
     return input_norm.detach().numpy(), reconstruction_norm.detach().numpy()
 
+# def compute_pairwise_dot_product(time_sequence):
+#     '''
+#     input: GT or prediction sequence for full reaction (e.g., shape [15, C, H, W])
+#     output: tensor with dot products between each consecutive time step
+#     '''
+    
+#     n_ts = time_sequence.shape[0]
+    
+#     dot_products = []
+#     for i in range(n_ts - 1):
+#         # Flatten both tensors to compute dot product over entire volume
+#         a = time_sequence[i + 1, ...].flatten()
+#         b = time_sequence[i, ...].flatten()
+#         dot = torch.dot(a, b)
+#         dot_products.append(dot)
+    
+#     return torch.stack(dot_products, dim=0).detach().numpy()
+
 def compute_pairwise_dot_product(time_sequence):
     '''
     input: GT or prediction sequence for full reaction (e.g., shape [15, C, H, W])
-    output: tensor with dot products between each consecutive time step
+    output: tensor with cosine similarity (dot product of unit vectors) between each consecutive time step
     '''
-    
     n_ts = time_sequence.shape[0]
-    
     dot_products = []
+
     for i in range(n_ts - 1):
-        # Flatten both tensors to compute dot product over entire volume
         a = time_sequence[i + 1, ...].flatten()
         b = time_sequence[i, ...].flatten()
-        dot = torch.dot(a, b)
+
+        # Normalize to unit vectors
+        a_norm = a / (a.norm(p=2) + 1e-8)
+        b_norm = b / (b.norm(p=2) + 1e-8)
+
+        # Compute dot product (cosine similarity)
+        dot = torch.dot(a_norm, b_norm)
         dot_products.append(dot)
-    
+
     return torch.stack(dot_products, dim=0).detach().numpy()
 
 

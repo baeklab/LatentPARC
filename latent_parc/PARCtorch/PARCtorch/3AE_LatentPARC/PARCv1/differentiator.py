@@ -8,6 +8,7 @@ class Differentiator(nn.Module):
         
         in_channels = latent_dim
         layer_depths = [64, 128, 64, 32]
+        # layer_depths = [32, 64, 32, 16]
         
         # block 1
         self.b1c1 = nn.Conv2d(in_channels, layer_depths[0], kernel_size=3, padding=1)  

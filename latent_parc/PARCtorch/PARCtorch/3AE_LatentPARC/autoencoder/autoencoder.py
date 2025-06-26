@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import json
 import torch.nn.functional as F
+from geometry import *
 
 # Helper Functions #
         
@@ -296,6 +297,35 @@ class ConvolutionalAutoencoder:
     def decode(self, x):
         return self.network.decoder(x)
     
+    
+class IRCAE(nn.Module):
+    def __init__(self, encoder, decoder, iso_reg=1.0):
+        super().__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+        self.iso_reg = iso_reg
+
+    def forward(self, x):
+        z = self.encoder(x)
+        x_hat = self.decoder(z)
+        return x_hat, z  # return latent code too
+
+#     def compute_loss(self, x, x_hat, loss_function):
+#         recon_loss = loss_function(x_hat, x)
+
+#         iso_loss = relaxed_distortion_measure(self.encoder, x, eta=0.2)
+#         total_loss = recon_loss + self.iso_reg * iso_loss
+
+#         return total_loss, recon_loss, iso_loss
+    
+    def compute_loss(self, z, x, x_hat, loss_function):
+        recon_loss = loss_function(x_hat, x)
+
+        iso_loss = relaxed_distortion_measure(self.decoder, z, eta=0.2)
+        total_loss = recon_loss + self.iso_reg * iso_loss
+
+        return total_loss, recon_loss, iso_loss
+    
 
 def train_autoencoder(model, optimizer, loss_function, train_loader, val_loader, 
                       device, epochs=10, image_size=(64, 64), n_channels=3, 
@@ -349,6 +379,86 @@ def train_autoencoder(model, optimizer, loss_function, train_loader, val_loader,
                 output = model(val_images)
                 val_loss = loss_function(output, val_images.view(-1, n_channels, *image_size))
                 val_losses.append(val_loss.item())
+
+        avg_val_loss = np.mean(val_losses)
+        log_dict['validation_loss_per_epoch'].append(avg_val_loss)
+
+        print(f"Epoch {epoch+1}: Training Loss: {avg_train_loss:.4f} | Validation Loss: {avg_val_loss:.4f}")
+
+        if scheduler:
+            scheduler.step(avg_val_loss)
+
+    # Save model and logs
+    save_model(model, save_path, weights_name, epochs)
+    save_log(log_dict, save_path, weights_name, epochs)
+
+    return log_dict
+
+def train_IR_autoencoder(model, optimizer, loss_function, train_loader, val_loader, 
+                      device, epochs=10, image_size=(64, 64), n_channels=3, 
+                      scheduler=None, noise_fn=None, initial_max_noise=0.16, 
+                      n_reduce_factor=0.5, reduce_on=1000, save_path=None, weights_name=None):
+    """ Train an autoencoder with optional noise injection. """
+
+    log_dict = {'training_loss_per_epoch': [], 
+                'recon_loss_per_epoch': [],
+                'iso_loss_per_epoch': [],
+                'validation_loss_per_epoch': []}
+    
+    model.to(device)
+
+    max_noise = initial_max_noise  # Initial noise level
+
+    for epoch in range(epochs):
+        print(f"\nEpoch {epoch + 1}/{epochs}")
+
+        # Reduce noise periodically
+        if (epoch + 1) % reduce_on == 0:
+            max_noise *= n_reduce_factor
+
+        # --- Training ---
+        model.train()
+        train_losses, recon_losses, iso_losses = [], [], []
+        for images in tqdm(train_loader, desc="Training"):
+            optimizer.zero_grad()
+            images = images[0][:, 0:n_channels, ...].to(device)
+            
+            # Apply noise if function is provided
+            noisy_images = noise_fn(images, max_val=max_noise) if noise_fn else images
+            
+            # Forward pass
+            x_hat, z = model(noisy_images)
+            loss, recon_loss, iso_loss = model.compute_loss(
+                z, images.view(-1, n_channels, *image_size), x_hat, loss_function
+            )
+            loss.backward()
+            optimizer.step()
+            train_losses.append(loss.item())
+            recon_losses.append(recon_loss.item())
+            iso_losses.append(iso_loss.item())
+
+
+        avg_train_loss = np.mean(train_losses)
+        avg_recon_loss = np.mean(recon_losses)
+        avg_iso_loss = np.mean(iso_losses)
+        
+        log_dict['training_loss_per_epoch'].append(avg_train_loss)
+        log_dict['recon_loss_per_epoch'].append(avg_recon_loss)
+        log_dict['iso_loss_per_epoch'].append(avg_iso_loss)
+
+        # --- Validation ---
+        model.eval()
+        val_losses = []
+        with torch.no_grad():
+            for val_images in tqdm(val_loader, desc="Validating"):
+                val_images = val_images[0][:, 0:n_channels, ...].to(device)
+
+                # Forward pass
+                x_hat, z = model(val_images)
+                loss, _, _ = model.compute_loss(
+                    z, val_images.view(-1, n_channels, *image_size), x_hat, loss_function
+                )
+                val_losses.append(loss.item())
 
         avg_val_loss = np.mean(val_losses)
         log_dict['validation_loss_per_epoch'].append(avg_val_loss)
@@ -430,86 +540,5 @@ def train_individual_autoencoder(model, optimizer, loss_function, train_loader, 
     save_log(log_dict, save_path, weights_name, epochs)
 
     return log_dict
-
-
-## in progress of doing separate loss, would be better to just train AE complete
-
-# def train_autoencoder(model, optimizer, loss_functions, train_loader, val_loader, 
-#                       device, epochs=10, image_size=(64, 64), n_channels=3, 
-#                       scheduler=None, noise_fn=None, initial_max_noise=0.16, 
-#                       n_reduce_factor=0.5, reduce_on=1000, save_path=None, weights_name=None):
-#     """ Train an autoencoder with optional noise injection. """
-
-#     log_dict = {'training_loss_per_epoch': [], 'validation_loss_per_epoch': [],
-#                 'training_T_loss_per_epoch':[], 'training_P_loss_per_epoch':[], 
-#                 'training_M_loss_per_epoch':[], 'validation_T_loss_per_epoch':[], 
-#                 'validation_P_loss_per_epoch':[], 'validation_M_loss_per_epoch':[]}
-    
-#     model.to(device)
-
-#     max_noise = initial_max_noise  # Initial noise level
-
-#     for epoch in range(epochs):
-#         print(f"\nEpoch {epoch + 1}/{epochs}")
-
-#         # Reduce noise periodically
-#         if (epoch + 1) % reduce_on == 0:
-#             max_noise *= n_reduce_factor
-
-#         # --- Training ---
-#         model.train()
-#         train_losses, train_lossesT, train_lossesP, train_lossesM = [], [], [], []
-#         for images in tqdm(train_loader, desc="Training"):
-#             optimizer.zero_grad()
-#             images = images[0][:, 0:n_channels, ...].to(device)
-            
-#             # Apply noise if function is provided
-#             noisy_images = noise_fn(images, max_val=max_noise) if noise_fn else images
-
-#             # Forward pass
-#             output = model(noisy_images)
-            
-#             losses = []
-#             for i in range(n_channels):
-#                 loss = loss_functions[i](output, images.view(-1, i:i+1, *image_size))
-#                 losses.append(loss)
-            
-#             training_T_loss_per_epoch
-            
-#             loss = sum(losses)
-#             loss.backward()
-#             optimizer.step()
-#             train_losses.append(loss.item())
-
-#         avg_train_loss = np.mean(train_losses)
-#         log_dict['training_loss_per_epoch'].append(avg_train_loss)
-
-#         # --- Validation ---
-#         model.eval()
-#         val_losses = []
-#         with torch.no_grad():
-#             for val_images in tqdm(val_loader, desc="Validating"):
-#                 val_images = val_images[0][:, 0:n_channels, ...].to(device)
-                
-#                 # val_images = F.interpolate(val_images, size=(image_size[0], image_size[1]), mode='bilinear', align_corners=False) #!!! for MLP
-
-#                 # Forward pass
-#                 output = model(val_images)
-#                 val_loss = loss_function(output, val_images.view(-1, n_channels, *image_size))
-#                 val_losses.append(val_loss.item())
-
-#         avg_val_loss = np.mean(val_losses)
-#         log_dict['validation_loss_per_epoch'].append(avg_val_loss)
-
-#         print(f"Epoch {epoch+1}: Training Loss: {avg_train_loss:.4f} | Validation Loss: {avg_val_loss:.4f}")
-
-#         if scheduler:
-#             scheduler.step(avg_val_loss)
-
-#     # Save model and logs
-#     save_model(model, save_path, weights_name, epochs)
-#     save_log(log_dict, save_path, weights_name, epochs)
-
-#     return log_dict
 
 

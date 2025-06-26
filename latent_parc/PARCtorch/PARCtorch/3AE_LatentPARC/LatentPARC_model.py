@@ -18,6 +18,7 @@ def save_model_and_logs(model, save_path, weights_name, log_dict, epochs):
             json.dump(log_dict, f)
         print(f"Model and logs saved to {save_path}")
 
+    
 
 # ------------
 # LATENT PARC MODELS
