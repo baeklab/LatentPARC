@@ -1,6 +1,6 @@
+import os
 import torch
 import torch.nn as nn
-import torchvision.models as models
 import torch.optim as optim
 from tqdm import tqdm
 import numpy as np
@@ -10,20 +10,39 @@ from PARCv1.differentiator import *
 from autoencoder.autoencoder import *
 from loss_funcs import *
 
-def save_model_and_logs(model, save_path, weights_name, log_dict, epochs):
-    """Save model weights and training logs."""
-    if save_path:
-        torch.save(model.state_dict(), f"{save_path}/{weights_name}_{epochs}.pth")
-        with open(f"{save_path}/{weights_name}_{epochs}.json", 'w') as f:
-            json.dump(log_dict, f)
-        print(f"Model and logs saved to {save_path}")
+def save_model_and_logs(
+    model,
+    optimizer,
+    save_path,
+    weights_name,
+    log_dict,
+    epochs
+):
+    """Save model weights, optimizer state, and training logs."""
+    if not save_path:
+        return
 
-    
+    os.makedirs(save_path, exist_ok=True)
+
+    checkpoint = {
+        "epoch": epochs,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+    }
+
+    ckpt_path = f"{save_path}/{weights_name}_{epochs}.pth"
+    torch.save(checkpoint, ckpt_path)
+
+    log_path = f"{save_path}/{weights_name}_{epochs}.json"
+    with open(log_path, "w") as f:
+        json.dump(log_dict, f)
+
+    print(f"Model, optimizer, and logs saved to {save_path}")
+
 
 # ------------
-# LATENT PARC MODELS
+# LATENT PARC MODEL
 # ------------
-# Original model where all 3 fields go into 1 autoencoder
     
 class lp_model(nn.Module):
     def __init__(self, encoder, decoder, differentiator, integrator):
@@ -55,206 +74,6 @@ class lp_model(nn.Module):
                 decoded_list.append(self.decoder(z_i))
             z, decoded = torch.stack(z_list, dim=0), torch.stack(decoded_list, dim=0)          
         return z, decoded
-    
-# model where T, P, ms all go into separate encoders, concat in latent space, decode separately
-class lp_model_3encoder_3decoder(nn.Module):
-    def __init__(self, encoder_T, encoder_P, encoder_M, decoder_T, decoder_P, decoder_M, differentiator, integrator):
-        super().__init__()
-        self.encoderT = encoder_T
-        self.encoderP = encoder_P
-        self.encoderM = encoder_M
-        self.decoderT = decoder_T
-        self.decoderP = decoder_P
-        self.decoderM = decoder_M
-        self.differentiator = differentiator
-        self.integrator = integrator
-
-    def forward(self, x, n_ts=1, mode='train'):
-        if mode == 'train':
-            if n_ts == 0:
-                z_t = self.encoderT(x[:, 0:1, :, :]) # only T channel
-                z_p = self.encoderP(x[:, 1:2, :, :]) # only P channel
-                z_m = self.encoderM(x[:, 2:3, :, :]) # only M channel
-                z = torch.cat((z_t, z_p, z_m), dim=1) # concat in latent space
-                
-                channel_index = z.shape[1] // 3  # get dim size for splitting index
-                
-                decoded_t = self.decoderT(z[:, 0:channel_index, :, :]) # decode T
-                decoded_p = self.decoderP(z[:, channel_index:channel_index*2, :, :]) # decode P
-                decoded_m = self.decoderM(z[:, channel_index*2:, :, :]) # decode M
-                decoded = torch.cat((decoded_t, decoded_p, decoded_m), dim=1) # concat for output
-                
-            elif n_ts == 1:
-                z_t_init = self.encoderT(x[:, 0:1, :, :]) # encode T
-                z_p_init = self.encoderP(x[:, 1:2, :, :]) # encode P
-                z_m_init = self.encoderM(x[:, 2:3, :, :]) # encode M
-                z_init = torch.cat((z_t_init, z_p_init, z_m_init), dim=1) # concat in latent space
-                z, _ = self.integrator(self.differentiator, 0.0, z_init, 0.1)
-                
-                channel_index = z.shape[1] // 3  # get dim size for splitting index
-                
-                decoded_t = self.decoderT(z[:, 0:channel_index, :, :]) # decode T
-                decoded_p = self.decoderP(z[:, channel_index:channel_index*2, :, :]) # decode P
-                decoded_m = self.decoderM(z[:, channel_index*2:, :, :]) # decode M
-                decoded = torch.cat((decoded_t, decoded_p, decoded_m), dim=1) # concat for output
-            
-        elif mode == 'pred':
-            z_list, decoded_list = [], []
-            
-            # encode ic
-            z_t = self.encoderT(x[:, 0:1, :, :]) # only T channel
-            z_p = self.encoderP(x[:, 1:2, :, :]) # only P channel
-            z_m = self.encoderM(x[:, 2:3, :, :]) # only M channel
-            z_i = torch.cat((z_t, z_p, z_m), dim=1) # concat in latent space
-        
-            z_list.append(z_i)
-            channel_index = z_i.shape[1] // 3  # get dim size for splitting index
-            
-            decoded_t = self.decoderT(z_i[:, 0:channel_index, :, :]) # decode T
-            decoded_p = self.decoderP(z_i[:, channel_index:channel_index*2, :, :]) # decode P
-            decoded_m = self.decoderM(z_i[:, channel_index*2:, :, :]) # decode M
-            decoded = torch.cat((decoded_t, decoded_p, decoded_m), dim=1) # concat for output
-            
-            decoded_list.append(decoded)
-            
-            for i in range(n_ts - 1):
-                z_i, _ = self.integrator(self.differentiator, 0.0, z_list[i], 0.1)
-                z_list.append(z_i)
-                
-                channel_index = z_i.shape[1] // 3  # get dim size for splitting index
-                
-                decoded_t = self.decoderT(z_i[:, 0:channel_index, :, :]) # decode T
-                decoded_p = self.decoderP(z_i[:, channel_index:channel_index*2, :, :]) # decode P
-                decoded_m = self.decoderM(z_i[:, channel_index*2:, :, :]) # decode M
-                decoded = torch.cat((decoded_t, decoded_p, decoded_m), dim=1) # concat for output
-
-                decoded_list.append(decoded)
-            z, decoded = torch.stack(z_list, dim=0), torch.stack(decoded_list, dim=0)
-        return z, decoded
-
-# model where ms goes into a separate AE, T and P are still encoded together, concat in latent space
-class lp_model_2plus1_1decoder(nn.Module):
-    def __init__(self, encoder_TP, encoder_M, decoder, differentiator, integrator):
-        super().__init__()
-        self.encoderTP = encoder_TP
-        self.encoderM = encoder_M
-        self.decoder = decoder
-        self.differentiator = differentiator
-        self.integrator = integrator
-
-    def forward(self, x, n_ts=1, mode='train'):
-        if mode == 'train':
-            if n_ts == 0:
-                z_tp = self.encoderTP(x[:, :2, :, :]) # only T,P channels
-                z_m = self.encoderM(x[:, 2:3, :, :]) # only M channel
-                z = torch.cat((z_tp, z_m), dim=1) # concat in latent space
-                decoded = self.decoder(z) # decode with 1 decoder for all 3 channels
-            elif n_ts == 1:
-                z_tp_init = self.encoderTP(x[:, :2, :, :]) # encode T, P
-                z_m_init = self.encoderM(x[:, 2:3, :, :]) # encode M separately
-                z_init = torch.cat((z_tp_init, z_m_init), dim=1) # concat in latent space
-                z, _ = self.integrator(self.differentiator, 0.0, z_init, 0.1)
-                decoded = self.decoder(z) # decode all together
-        elif mode == 'pred': 
-            z_list, decoded_list = [], []
-            
-            # encode ic
-            z_tp = self.encoderTP(x[:, :2, :, :]) # only T,P channels
-            z_m = self.encoderM(x[:, 2:3, :, :]) # only M channel
-            z_i = torch.cat((z_tp, z_m), dim=1) # concat in latent space
-        
-            z_list.append(z_i)
-            # decoded_list.append(self.decoder(z_i))
-            
-            for i in range(n_ts - 1):
-                z_i, _ = self.integrator(self.differentiator, 0.0, z_list[i], 0.1)
-                z_list.append(z_i)
-                decoded_list.append(self.decoder(z_i))
-            z, decoded = torch.cat(z_list, dim=0), torch.cat(decoded_list, dim=0)
-        return z, decoded
-
-# model where T, P, ms all go into separate encoders, concat in latent space, decode together
-class lp_model_3encoder_1decoder(nn.Module):
-    def __init__(self, encoder_T, encoder_P, encoder_M, decoder, differentiator, integrator):
-        super().__init__()
-        self.encoderT = encoder_T
-        self.encoderP = encoder_P
-        self.encoderM = encoder_M
-        self.decoder = decoder
-        self.differentiator = differentiator
-        self.integrator = integrator
-
-    def forward(self, x, n_ts=1, mode='train'):
-        if mode == 'train':
-            if n_ts == 0:
-                z_t = self.encoderT(x[:, 0:1, :, :]) # only T channel
-                z_p = self.encoderP(x[:, 1:2, :, :]) # only P channel
-                z_m = self.encoderM(x[:, 2:3, :, :]) # only M channel
-                z = torch.cat((z_t, z_p, z_m), dim=1) # concat in latent space
-                decoded = self.decoder(z) # decode with 1 decoder for all 3 channels
-            elif n_ts == 1:
-                z_t_init = self.encoderT(x[:, 0:1, :, :]) # encode T
-                z_p_init = self.encoderP(x[:, 1:2, :, :]) # encode P
-                z_m_init = self.encoderM(x[:, 2:3, :, :]) # encode M
-                z_init = torch.cat((z_t_init, z_p_init, z_m_init), dim=1) # concat in latent space
-                z, _ = self.integrator(self.differentiator, 0.0, z_init, 0.1)
-                decoded = self.decoder(z) # decode all together
-        elif mode == 'pred': #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!NOT EDITED YET, WAITING TO SEE MODE TRAIN WORK
-            z_list, decoded_list = [], []
-            z_i = self.encoder(x)
-            z_list.append(z_i)
-            decoded_list.append(self.decoder(z_i))
-            for _ in range(n_ts - 1):
-                z_i, _ = self.integrator(self.differentiator, 0.0, z_i, 0.1)
-                z_list.append(z_i)
-                decoded_list.append(self.decoder(z_i))
-            z, decoded = torch.cat(z_list, dim=0), torch.cat(decoded_list, dim=0)
-        return z, decoded
-    
-# model where T, P, ms all go into separate encoders, concat in latent space, decode separately
-class lp_model_2plus1_2decoder(nn.Module):
-    def __init__(self, encoder_TP, encoder_M, decoder_TP, decoder_M, differentiator, integrator):
-        super().__init__()
-        self.encoderTP = encoder_TP
-        self.encoderM = encoder_M
-        self.decoderTP = decoder_TP
-        self.decoderM = decoder_M
-        self.differentiator = differentiator
-        self.integrator = integrator
-
-    def forward(self, x, n_ts=1, mode='train'):
-        if mode == 'train':
-            if n_ts == 0:
-                z_tp = self.encoderTP(x[:, 0:2, :, :]) # T, P channels
-                z_m = self.encoderM(x[:, 2:3, :, :]) # only M channel
-                z = torch.cat((z_tp, z_m), dim=1) # concat in latent space
-                
-                decoded_tp = self.decoderTP(z[:, 0:8, :, :]) # decode TP
-                decoded_m = self.decoderM(z[:, 8:, :, :]) # decode M
-                decoded = torch.cat((decoded_tp, decoded_m), dim=1) # concat for output
-                
-            elif n_ts == 1:
-                z_tp_init = self.encoderTP(x[:, 0:2, :, :]) # encode T
-                z_m_init = self.encoderM(x[:, 2:3, :, :]) # encode M
-                z_init = torch.cat((z_tp_init, z_m_init), dim=1) # concat in latent space
-                z, _ = self.integrator(self.differentiator, 0.0, z_init, 0.1)
-                
-                decoded_tp = self.decoderTP(z[:, 0:8, :, :]) # decode T
-                decoded_m = self.decoderM(z[:, 8:, :, :]) # decode M
-                decoded = torch.cat((decoded_tp, decoded_m), dim=1) # concat for output
-            
-        elif mode == 'pred': #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!NOT EDITED YET, WAITING TO SEE MODE TRAIN WORK
-            z_list, decoded_list = [], []
-            z_i = self.encoder(x)
-            z_list.append(z_i)
-            decoded_list.append(self.decoder(z_i))
-            for _ in range(n_ts - 1):
-                z_i, _ = self.integrator(self.differentiator, 0.0, z_i, 0.1)
-                z_list.append(z_i)
-                decoded_list.append(self.decoder(z_i))
-            z, decoded = torch.stack(z_list, dim=0), torch.stack(decoded_list, dim=0)
-        return z, decoded
-
 
 # ------------
 # TRAINING FUNCTION
@@ -439,8 +258,11 @@ def train_latentparc(model, optimizer, loss_function, train_loader, val_loader, 
         if scheduler:
             scheduler.step(avg_val_loss)
 
+        if (epoch + 1) % 100 == 0:
+            save_model_and_logs(model, optimizer, save_path, weights_name, log_dict, epoch)
+
     # Save model and logs
-    save_model_and_logs(model, save_path, weights_name, log_dict, epochs)
+    save_model_and_logs(model, optimizer, save_path, weights_name, log_dict, epochs)
 
     return log_dict
 
