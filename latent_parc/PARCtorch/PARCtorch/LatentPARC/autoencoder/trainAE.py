@@ -25,8 +25,8 @@ sys.path.append(new_path)
 from data.normalization import compute_min_max
 
 data_dirs = [
-    "/project/vil_baek/data/physics/PARCTorch/HMX/train",
-    "/project/vil_baek/data/physics/PARCTorch/HMX/test",
+    "/standard/sds_baek_energetic/HMX_mesoscale_9pt5_GPa/preprocessed/train",
+    "/standard/sds_baek_energetic/HMX_mesoscale_9pt5_GPa/preprocessed/test",
 ]
 output_file = new_path + "/data/hmx_min_max.json"
 compute_min_max(data_dirs, output_file)
@@ -46,12 +46,12 @@ logging.basicConfig(
 )
 
 # Example configuration for HMX dataset
-data_dir_train = "/project/vil_baek/data/physics/PARCTorch/HMX/train"  # Replace with your actual train directory path
-data_dir_test = "/project/vil_baek/data/physics/PARCTorch/HMX/test"  # Replace with your actual test directory path
+data_dir_train = "/standard/sds_baek_energetic/HMX_mesoscale_9pt5_GPa/preprocessed/train"  # Replace with your actual train directory path
+data_dir_test = "/standard/sds_baek_energetic/HMX_mesoscale_9pt5_GPa/preprocessed/test"  # Replace with your actual test directory path
 n_ts = 2
 # Path to the min_max.json file
 min_max_path = os.path.join(new_path, "data", "hmx_min_max.json")  # Correct path
-batch_size = 32
+batch_size = 1
 validation_split = 0.05  # 20% for validation
 
 # Initialize the dataset
@@ -59,7 +59,7 @@ train_dataset = GenericPhysicsDataset(
     data_dirs=[data_dir_train],
     future_steps=n_ts-1,
     min_max_path=min_max_path,
-    vflip_prob=0.5,
+    # vflip_prob=0.5,
 )
 
 # Calculate the size of the validation set
@@ -90,7 +90,7 @@ val_loader = DataLoader(
 
 # DEFINE AUTOENCODER + TRAINING
 # where to save weights
-save_path="/sfs/gpfs/tardis/home/pdy2bw/Research/LatentPARC/latent_parc/PARCtorch/PARCtorch/3AE_LatentPARC/autoencoder"
+save_path="/sfs/gpfs/tardis/home/pdy2bw/Research/LatentPARC_new/LatentPARC/latent_parc/PARCtorch/PARCtorch/LatentPARC/autoencoder" # CHANGE TO YOUR OWN
 weights_name="vertflip_ReLU_normal_conv_ReLU_out_layers_3_8_latent_8_MAE_DE_Nmax16_nrf8_redon500_LRstep_e3_factor8_stepsize200"
 
 # model setup
@@ -122,7 +122,7 @@ scheduler = StepLR(optimizer, step_size=200, gamma=0.8)
 model = ConvolutionalAutoencoder(autoencoder, optimizer, device, save_path, weights_name)
 
 log_dict = train_autoencoder(model.network, optimizer, criterion, train_loader, val_loader, 
-                             device=device, epochs=3000, image_size=[128, 256], n_channels=3, 
+                             device=device, epochs=3000, image_size=[680, 1000], n_channels=3, 
                              scheduler=scheduler, noise_fn=add_random_noise, initial_max_noise=0.16, 
                              n_reduce_factor=0.8, reduce_on=500, 
                              save_path=save_path, weights_name=weights_name)
