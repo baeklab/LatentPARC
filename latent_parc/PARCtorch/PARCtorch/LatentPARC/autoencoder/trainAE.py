@@ -1,34 +1,25 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.optim.lr_scheduler import StepLR
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torchvision import transforms
-
 import os
 import sys
 import numpy as np
-import matplotlib.pyplot as plt
-import random
-from tqdm import tqdm
-from torchvision.utils import make_grid
 from autoencoder import *
 from torch.optim import Adam
 import json
 
 # LOAD IN DATA
 # Add the root directory (PARCTorch) to the system path
-path = os.path.abspath(os.path.join(os.getcwd(), ".."))  # Your initial path
-new_path = os.path.dirname(path)  # Remove the last folder
+base_path = os.path.abspath(os.path.join(os.getcwd(), "../.."))
 
-sys.path.append(new_path)
+sys.path.append(base_path)
 from data.normalization import compute_min_max
 
 data_dirs = [
     "/standard/sds_baek_energetic/HMX_mesoscale_9pt5_GPa/preprocessed/train",
     "/standard/sds_baek_energetic/HMX_mesoscale_9pt5_GPa/preprocessed/test",
 ]
-output_file = new_path + "/data/hmx_min_max.json"
+output_file = os.path.join(base_path, "data", "hmx_min_max.json")
 compute_min_max(data_dirs, output_file)
 
 # CREATE DATA LOADERS
@@ -38,7 +29,6 @@ from data.dataset import (
     GenericPhysicsDataset,
     custom_collate_fn,
 )
-from utilities.viz import visualize_channels, save_gifs_with_ground_truth
 
 # Set up logging
 logging.basicConfig(
@@ -50,7 +40,7 @@ data_dir_train = "/standard/sds_baek_energetic/HMX_mesoscale_9pt5_GPa/preprocess
 data_dir_test = "/standard/sds_baek_energetic/HMX_mesoscale_9pt5_GPa/preprocessed/test"  # Replace with your actual test directory path
 n_ts = 2
 # Path to the min_max.json file
-min_max_path = os.path.join(new_path, "data", "hmx_min_max.json")  # Correct path
+min_max_path = os.path.join(base_path, "data", "hmx_min_max.json")  # Correct path
 batch_size = 1
 validation_split = 0.05  # 20% for validation
 
@@ -88,41 +78,79 @@ val_loader = DataLoader(
     collate_fn=custom_collate_fn,
 )
 
-# DEFINE AUTOENCODER + TRAINING
-# where to save weights
-save_path="/sfs/gpfs/tardis/home/pdy2bw/Research/LatentPARC_new/LatentPARC/latent_parc/PARCtorch/PARCtorch/LatentPARC/autoencoder" # CHANGE TO YOUR OWN
-weights_name="vertflip_ReLU_normal_conv_ReLU_out_layers_3_8_latent_8_MAE_DE_Nmax16_nrf8_redon500_LRstep_e3_factor8_stepsize200"
-
-# model setup
+# ------------------------
+# Training Hyperparameters
+# ------------------------
+save_path = os.path.join(base_path, "LatentPARC", "autoencoder")
+weights_name = "test"
+weights_path = os.path.join(save_path, f"{weights_name}.pth")  # optional, check for existing weights to load
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# Define layer sizes and initialize encoder/decoder
-layer_sizes = [3, 8]
-latent_dim = 8
+epochs=10
+save_every_epochs=2
+image_size=[680, 1000]
+n_channels=3
+
+initial_max_noise=0.16
+n_reduce_factor=0.8
+reduce_noise_on=500
+
+layer_sizes=[3, 8]
+latent_dim=8
+
+# ------------------------
+# Model setup
+# ------------------------
 encoder = Encoder(layers=layer_sizes, latent_dim=latent_dim, act_fn=nn.ReLU()).to(device)
 decoder = Decoder(layers=layer_sizes, latent_dim=latent_dim, act_fn=nn.ReLU()).to(device)
-
-# Initialize autoencoder
 autoencoder = Autoencoder(encoder, decoder).to(device)
 
-# Loss Func
-criterion = torch.nn.L1Loss().cuda()
-# criterion = torch.nn.MSELoss().cuda()
-# criterion = LpLoss(p=7).cuda()
-
-# criterion = nn.MSELoss()
+criterion = torch.nn.L1Loss().to(device)
 optimizer = Adam(autoencoder.parameters(), lr=1e-3)
+scheduler = None
 
-# Define learning rate scheduler
-scheduler = StepLR(optimizer, step_size=200, gamma=0.8)
-# scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.8, patience=10, verbose=True)
+# ------------------------
+# Optionally load from checkpoint
+# ------------------------
+if os.path.exists(weights_path):
+    print(f"Loading checkpoint from {weights_path}")
+    checkpoint = torch.load(weights_path, map_location=device)
 
+    autoencoder.load_state_dict(checkpoint["model_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
-#  training model - one save
+    if scheduler is not None and "scheduler_state_dict" in checkpoint:
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+
+    # restore noise state if available
+    initial_max_noise = checkpoint.get("current_max_noise", initial_max_noise)
+else:
+    print("No checkpoint found, starting from scratch.")
+
+# ------------------------
+# Wrap in ConvolutionalAutoencoder
+# ------------------------
 model = ConvolutionalAutoencoder(autoencoder, optimizer, device, save_path, weights_name)
 
-log_dict = train_autoencoder(model.network, optimizer, criterion, train_loader, val_loader, 
-                             device=device, epochs=3000, image_size=[680, 1000], n_channels=3, 
-                             scheduler=scheduler, noise_fn=add_random_noise, initial_max_noise=0.16, 
-                             n_reduce_factor=0.8, reduce_on=500, 
-                             save_path=save_path, weights_name=weights_name)
+# ------------------------
+# Train
+# ------------------------
+log_dict = train_autoencoder(
+    model.network,
+    optimizer,
+    criterion,
+    train_loader,
+    val_loader,
+    device=device,
+    epochs=epochs,       
+    save_every_epochs=save_every_epochs,
+    image_size=image_size,
+    n_channels=n_channels,
+    scheduler=scheduler,
+    noise_fn=add_random_noise,
+    initial_max_noise=initial_max_noise,
+    n_reduce_factor=n_reduce_factor,
+    reduce_on=reduce_noise_on,
+    save_path=save_path,
+    weights_name=weights_name
+)
