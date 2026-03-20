@@ -7,6 +7,7 @@ import logging
 from autoencoder import *
 from torch.optim import Adam
 from utils import add_random_noise
+from train_scripts import train_autoencoder
 
 # Add the root directory (PARCTorch) to the system path
 base_path = os.path.abspath(os.path.join(os.getcwd(), "../.."))
