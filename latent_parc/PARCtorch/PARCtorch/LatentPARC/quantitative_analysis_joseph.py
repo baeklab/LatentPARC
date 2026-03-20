@@ -53,7 +53,7 @@ sys.path.append(path)
 # Import required modules from your project
 # ---------------------------
 from data.dataset import GenericPhysicsDataset, custom_collate_fn
-from autoencoder.autoencoder import *
+from LatentPARC.latent_parc.PARCtorch.PARCtorch.LatentPARC.autoencoder.autoencoder_backbones import *
 from PARCv1.differentiator import *
 from PARCtorch.integrator.rk4 import *
 from PARCtorch.integrator.numintegrator import *

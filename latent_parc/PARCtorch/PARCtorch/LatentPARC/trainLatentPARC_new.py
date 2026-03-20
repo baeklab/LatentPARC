@@ -21,7 +21,7 @@ from torch.utils.data import DataLoader, random_split
 from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 
 # Project-specific modules
-from autoencoder.autoencoder import *
+from LatentPARC.latent_parc.PARCtorch.PARCtorch.LatentPARC.autoencoder.autoencoder_backbones import *
 from PARCv1.differentiator import *
 from PARCtorch.integrator.rk4 import *
 from PARCtorch.integrator.numintegrator import *

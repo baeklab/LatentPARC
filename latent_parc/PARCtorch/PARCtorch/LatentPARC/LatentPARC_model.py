@@ -7,7 +7,7 @@ import numpy as np
 import json
 import torch.nn.functional as F
 from PARCv1.differentiator import *
-from autoencoder.autoencoder import *
+from LatentPARC.latent_parc.PARCtorch.PARCtorch.LatentPARC.autoencoder.autoencoder_backbones import *
 from loss_funcs import *
 
 def save_model_and_logs(

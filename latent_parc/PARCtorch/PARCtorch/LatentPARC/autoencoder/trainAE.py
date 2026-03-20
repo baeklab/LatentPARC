@@ -4,7 +4,7 @@ import os
 import sys
 import logging
 
-from autoencoder import *
+from autoencoder_backbones import *
 from torch.optim import Adam
 from utils import add_random_noise
 from train_scripts import train_autoencoder
