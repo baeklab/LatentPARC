@@ -1,20 +1,19 @@
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import os
 import sys
-import numpy as np
+import logging
+
 from autoencoder import *
 from torch.optim import Adam
-import json
+from utils import add_random_noise
 
-# LOAD IN DATA
 # Add the root directory (PARCTorch) to the system path
 base_path = os.path.abspath(os.path.join(os.getcwd(), "../.."))
-
 sys.path.append(base_path)
-from data.normalization import compute_min_max
 
+# LOAD IN DATA
+from data.normalization import compute_min_max
 data_dirs = [
     "/standard/sds_baek_energetic/HMX_mesoscale_9pt5_GPa/preprocessed/train",
     "/standard/sds_baek_energetic/HMX_mesoscale_9pt5_GPa/preprocessed/test",
@@ -24,7 +23,6 @@ compute_min_max(data_dirs, output_file)
 
 # CREATE DATA LOADERS
 from torch.utils.data import DataLoader, random_split
-import logging
 from data.dataset import (
     GenericPhysicsDataset,
     custom_collate_fn,
