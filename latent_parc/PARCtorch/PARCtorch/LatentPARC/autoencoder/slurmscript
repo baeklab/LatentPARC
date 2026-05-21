@@ -3,8 +3,8 @@
 #SBATCH -p gpu
 #SBATCH -N 1
 #SBATCH --gres=gpu
-#SBATCH -t 00:15:00
-#SBATCH --mem=16G
+#SBATCH -t 04:00:00
+#SBATCH --mem=8G
 #SBATCH -o /sfs/gpfs/tardis/home/pdy2bw/Research/LatentPARC_new/LatentPARC/latent_parc/PARCtorch/PARCtorch/LatentPARC/autoencoder/slurm_files/output_%j.log     # Save output file
 #SBATCH -e /sfs/gpfs/tardis/home/pdy2bw/Research/LatentPARC_new/LatentPARC/latent_parc/PARCtorch/PARCtorch/LatentPARC/autoencoder/slurm_files/error_%j.log       # Save error file
 #SBATCH --mail-type=ALL                                # Send email when job finishes
@@ -19,4 +19,4 @@ export PYTHON_PATH=$DIR/lib/python3.7/site-packages
 export PATH=$PATH:/home/pdy2bw/.local/lib/python3.10/site-packages
 
 which python
-apptainer run --nv $CONTAINERDIR/pytorch-2.7.0.sif /sfs/gpfs/tardis/home/pdy2bw/Research/LatentPARC_new/LatentPARC/latent_parc/PARCtorch/PARCtorch/LatentPARC/autoencoder/train_autoencoder.py
+apptainer run --nv $CONTAINERDIR/pytorch-2.7.0.sif /sfs/gpfs/tardis/home/pdy2bw/Research/LatentPARC_new/LatentPARC/latent_parc/PARCtorch/PARCtorch/LatentPARC/autoencoder/trainSRheadAE.py

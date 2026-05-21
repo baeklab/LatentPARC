@@ -3,6 +3,7 @@ import torch.nn as nn
 import os
 import sys
 import logging
+from torch.optim.lr_scheduler import StepLR
 
 from autoencoder_backbones import *
 from torch.optim import Adam
@@ -16,8 +17,10 @@ sys.path.append(base_path)
 # LOAD IN DATA
 from data.normalization import compute_min_max
 data_dirs = [
-    "/standard/sds_baek_energetic/HMX_mesoscale_9pt5_GPa/preprocessed/train",
-    "/standard/sds_baek_energetic/HMX_mesoscale_9pt5_GPa/preprocessed/test",
+    # "/project/vil_baek/data/physics/PARCTorch/HMX/train",
+    # "/project/vil_baek/data/physics/PARCTorch/HMX/test",
+    "/standard/sds_baek_energetic/data/physics/Shahab_Latent_PARC/Processed_data/PARCtorch_meso_scale/train",
+    "/standard/sds_baek_energetic/data/physics/Shahab_Latent_PARC/Processed_data/PARCtorch_meso_scale/test",
 ]
 output_file = os.path.join(base_path, "data", "hmx_min_max.json")
 compute_min_max(data_dirs, output_file)
@@ -35,8 +38,9 @@ logging.basicConfig(
 )
 
 # Example configuration for HMX dataset
-data_dir_train = "/standard/sds_baek_energetic/HMX_mesoscale_9pt5_GPa/preprocessed/train"  # Replace with your actual train directory path
-data_dir_test = "/standard/sds_baek_energetic/HMX_mesoscale_9pt5_GPa/preprocessed/test"  # Replace with your actual test directory path
+# data_dir_train = "/project/vil_baek/data/physics/PARCTorch/HMX/train"  # Replace with your actual train directory path
+data_dir_train = "/standard/sds_baek_energetic/data/physics/Shahab_Latent_PARC/Processed_data/PARCtorch_meso_scale/train"  # Replace with your actual train directory path
+
 n_ts = 2
 # Path to the min_max.json file
 min_max_path = os.path.join(base_path, "data", "hmx_min_max.json")  # Correct path
@@ -81,13 +85,14 @@ val_loader = DataLoader(
 # Training Hyperparameters
 # ------------------------
 save_path = os.path.join(base_path, "LatentPARC", "autoencoder")
-weights_name = "test"
+weights_name = "clarenceAE_plusStepLR"
 weights_path = os.path.join(save_path, f"{weights_name}.pth")  # optional, check for existing weights to load
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-epochs=10
-save_every_epochs=2
-image_size=[680, 1000]
+epochs=3000
+save_every_epochs=500
+# image_size=[128, 256]
+image_size=[160, 240]
 n_channels=3
 
 initial_max_noise=0.16
@@ -106,7 +111,7 @@ autoencoder = Autoencoder(encoder, decoder).to(device)
 
 criterion = torch.nn.L1Loss().to(device)
 optimizer = Adam(autoencoder.parameters(), lr=1e-3)
-scheduler = None
+scheduler = StepLR(optimizer, step_size=200, gamma=0.8)
 
 # ------------------------
 # Optionally load from checkpoint
