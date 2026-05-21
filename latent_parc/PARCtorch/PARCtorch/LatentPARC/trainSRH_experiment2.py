@@ -50,7 +50,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 N_TIMESTEPS         = 5          # 2 = single future timestep (target); increase for multi-step rollout
 BATCH_SIZE          = 1
 VALIDATION_SPLIT    = 0.05       # Fraction of training data used for validation
-IMAGE_SIZE          = [128, 256] # MESO [680, 1000] SINGLE [128, 256] SHAHAB [160, 240]
+IMAGE_SIZE          = [160, 240] # MESO [680, 1000] SINGLE [128, 256] SHAHAB [160, 240]
 N_CHANNELS          = 3
 
 # ── Model Architecture ────────────────────────────────────────────────────────
@@ -74,32 +74,32 @@ REDUCE_ON           = 50         # Epoch interval for noise reduction
 scheduler = None # options None, step
 
 # loss_function = torch.nn.L1Loss()
-# loss_function = FFTLoss(
-#     pixel_loss=nn.L1Loss(),
-#     lambda_pixel=1.0,
-#     lambda_fft=0.01 # unlabeled are 0.1
-# )
-loss_function = PhaseFFTLoss(
+loss_function = FFTLoss(
     pixel_loss=nn.L1Loss(),
     lambda_pixel=1.0,
     lambda_fft=0.01 # unlabeled are 0.1
 )
+# loss_function = PhaseFFTLoss(
+#     pixel_loss=nn.L1Loss(),
+#     lambda_pixel=1.0,
+#     lambda_fft=0.01 # unlabeled are 0.1
+# )
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 DATA_DIRS = [
-    "/project/vil_baek/data/physics/PARCTorch/HMX/train", # single pore
+    # "/project/vil_baek/data/physics/PARCTorch/HMX/train", # single pore
     # "/standard/sds_baek_energetic/HMX_mesoscale_9pt5_GPa/preprocessed/train", # new meso
     # "/standard/sds_baek_energetic/HMX_mesoscale_9pt5_GPa/preprocessed/temp", # single sample new meso for fast testing
-    # "/standard/sds_baek_energetic/data/physics/Shahab_Latent_PARC/Processed_data/PARCtorch_meso_scale/train" # shahab meso
+    "/standard/sds_baek_energetic/data/physics/Shahab_Latent_PARC/Processed_data/PARCtorch_meso_scale/train" # shahab meso
 ]
 MIN_MAX_OUTPUT_FILE = f"{BASE_PATH}/LatentPARC/latent_parc/PARCtorch/PARCtorch/data/hmx_min_max.json"
 AE_WEIGHTS_PATH     = "autoencoder/weights/basicAE_3000.pth"
 SAVE_PATH           = f"{BASE_PATH}/LatentPARC/latent_parc/PARCtorch/PARCtorch/LatentPARC/weights"
-WEIGHTS_NAME        = "Experiment3_NoSR_PhaseFFTlambda0pt01"
+WEIGHTS_NAME        = "PhongSR_FFTlambda0pt01_ShahabData"
 
 # ── Flags ─────────────────────────────────────────────────────────────────────
 FREEZE_AE           = True       # Freeze autoencoder weights during training
-MODEL_VERSION       = "NoSR"       # Options: "SR", "PhongSR", "NoSR"
+MODEL_VERSION       = "PhongSR"       # Options: "SR", "PhongSR", "NoSR"
 LOAD_WEIGHTS        = False      # Load checkpoint to resume training
 LOAD_WEIGHTS_PATH   = "weights/name.pth" # Path to checkpoint (only used if LOAD_WEIGHTS=True)
 
